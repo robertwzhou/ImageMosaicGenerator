@@ -1,0 +1,4 @@
+-r requirements.txt
+jupyter==1.1.1
+line-profiler==5.1.0
+matplotlib==3.11.2
