@@ -1,6 +1,6 @@
 Timer unit: 0.001 s
 
-Total time: 0.345514 s
+Total time: 0.347615 s
 File: /Users/robertwzhou/Documents/GitHub/ImageMosaicGenerator/baseline/lab1_baseline.py
 Function: loop_based_mosaic at line 30
 
@@ -14,23 +14,23 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
     35         1          0.0      0.0      0.0      final_img = np.zeros((grid_size * display_tile_size, grid_size * display_tile_size, 3), dtype=np.uint8)
     36                                               
     37        33          0.0      0.0      0.0      for r in range(grid_size):
-    38      1056          0.3      0.0      0.1          for c in range(grid_size):
+    38      1056          0.2      0.0      0.1          for c in range(grid_size):
     39      1024          0.3      0.0      0.1              y_start, y_end = r * tile_h, (r + 1) * tile_h
     40      1024          0.2      0.0      0.1              x_start, x_end = c * tile_w, (c + 1) * tile_w
-    41      1024          0.5      0.0      0.2              region = img_array[y_start:y_end, x_start:x_end]
+    41      1024          0.5      0.0      0.1              region = img_array[y_start:y_end, x_start:x_end]
     42                                                       
-    43      1024         19.4      0.0      5.6              avg_color = np.mean(region, axis=(0, 1))
+    43      1024         19.7      0.0      5.7              avg_color = np.mean(region, axis=(0, 1))
     44                                                       
     45      1024          0.2      0.0      0.1              best_idx = 0
     46      1024          0.4      0.0      0.1              min_dist = float('inf')
-    47     33792         10.9      0.0      3.2              for i, color in enumerate(base_colors):
-    48     32768        301.2      0.0     87.2                  dist = np.linalg.norm(avg_color - color)
-    49     32768          7.0      0.0      2.0                  if dist < min_dist:
+    47     33792         11.1      0.0      3.2              for i, color in enumerate(base_colors):
+    48     32768        303.3      0.0     87.3                  dist = np.linalg.norm(avg_color - color)
+    49     32768          7.3      0.0      2.1                  if dist < min_dist:
     50      5349          1.1      0.0      0.3                      min_dist = dist
     51      5349          1.2      0.0      0.3                      best_idx = i
     52                                                               
-    53      1024          0.3      0.0      0.1              paste_y = r * display_tile_size
-    54      1024          0.2      0.0      0.1              paste_x = c * display_tile_size
-    55      1024          2.2      0.0      0.6              final_img[paste_y:paste_y+display_tile_size, paste_x:paste_x+display_tile_size] = tile_array[best_idx]
+    53      1024          0.2      0.0      0.1              paste_y = r * display_tile_size
+    54      1024          0.3      0.0      0.1              paste_x = c * display_tile_size
+    55      1024          1.5      0.0      0.4              final_img[paste_y:paste_y+display_tile_size, paste_x:paste_x+display_tile_size] = tile_array[best_idx]
     56                                                       
     57         1          0.0      0.0      0.0      return final_img
