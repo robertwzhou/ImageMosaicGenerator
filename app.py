@@ -1,111 +1,93 @@
 import gradio as gr
 import numpy as np
 from PIL import Image
+from functools import lru_cache
 import os
 import time
 
 # ==========================================
-# 1. VECTORIZED ALGORITHM (Fast)
+# 1. TILE SET (built once per palette size, then cached)
 # ==========================================
-def vectorized_mosaic(img_array, grid_size, tile_array, base_colors):
-    height, width, channels = img_array.shape
-    tile_h, tile_w = height // grid_size, width // grid_size
-    
-    cropped = img_array[:tile_h * grid_size, :tile_w * grid_size, :]
-    reshaped = cropped.reshape(grid_size, tile_h, grid_size, tile_w, channels)
-    
-    avg_colors = reshaped.mean(axis=(1, 3)).astype(np.uint8) 
-    
-    distances = np.linalg.norm(avg_colors[:, :, None] - base_colors, axis=3)
-    closest_tile_indices = np.argmin(distances, axis=2)
-    
-    mosaic_5d = tile_array[closest_tile_indices]
-    final_mosaic = mosaic_5d.swapaxes(1, 2).reshape(grid_size * tile_array.shape[1], grid_size * tile_array.shape[2], 3)
-    
-    return final_mosaic, cropped, avg_colors
+@lru_cache(maxsize=None)
+def build_tiles(num_tiles, tile_size=20):
+    """Lab 1's synthetic tile set. Returns (tile_array, base_colors)."""
+    np.random.seed(42)
+    base_colors = np.random.randint(0, 255, size=(num_tiles, 3), dtype=np.uint8)
+    tile_array = np.zeros((num_tiles, tile_size, tile_size, 3), dtype=np.uint8)
+    for i in range(num_tiles):
+        tile_array[i, :, :] = base_colors[i]
+        tile_array[i, 0, :] = 20
+        tile_array[i, :, 0] = 20
+    return tile_array, base_colors
 
 # ==========================================
-# 2. NAIVE LOOP ALGORITHM (Slow - For Step 6)
+# 2. OPTIMIZED ALGORITHM (no Python loops)
 # ==========================================
-def loop_based_mosaic(img_array, grid_size, tile_array, base_colors):
-    height, width, channels = img_array.shape
-    tile_h, tile_w = height // grid_size, width // grid_size
-    display_tile_size = tile_array.shape[1]
-    
-    final_img = np.zeros((grid_size * display_tile_size, grid_size * display_tile_size, 3), dtype=np.uint8)
-    
-    for r in range(grid_size):
-        for c in range(grid_size):
-            y_start, y_end = r * tile_h, (r + 1) * tile_h
-            x_start, x_end = c * tile_w, (c + 1) * tile_w
-            region = img_array[y_start:y_end, x_start:x_end]
-            
-            avg_color = np.mean(region, axis=(0, 1))
-            
-            best_idx = 0
-            min_dist = float('inf')
-            for i, color in enumerate(base_colors):
-                dist = np.linalg.norm(avg_color - color)
-                if dist < min_dist:
-                    min_dist = dist
-                    best_idx = i
-                    
-            paste_y = r * display_tile_size
-            paste_x = c * display_tile_size
-            final_img[paste_y:paste_y+display_tile_size, paste_x:paste_x+display_tile_size] = tile_array[best_idx]
-            
-    return final_img
+def cell_averages(img_array, grid_size):
+    """Crop to a multiple of the grid, then average each cell with one box-filter downscale."""
+    height, width, _ = img_array.shape
+    cell_h, cell_w = height // grid_size, width // grid_size
+    cropped = img_array[:cell_h * grid_size, :cell_w * grid_size]
+    avg_colors = np.asarray(Image.fromarray(cropped).reduce((cell_w, cell_h)))
+    return cropped, avg_colors
+
+
+def match_tiles(avg_colors, base_colors):
+    """Index of the nearest tile color for every cell, as a (grid, grid) array."""
+    # |a - t|^2 = |a|^2 - 2 a.t + |t|^2. |a|^2 is the same for every tile,
+    # so the nearest tile is the one that minimizes |t|^2 - 2 a.t.
+    a = avg_colors.reshape(-1, 3).astype(np.float32)
+    t = base_colors.astype(np.float32)
+    best = ((t ** 2).sum(axis=1) - 2 * a @ t.T).argmin(axis=1)
+    return best.reshape(avg_colors.shape[:2])
+
+
+def assemble(best, tile_array):
+    """Gather the chosen tile for every cell and lay them out as one image."""
+    rows, cols = best.shape
+    tile_size = tile_array.shape[1]
+    return tile_array[best].transpose(0, 2, 1, 3, 4).reshape(rows * tile_size, cols * tile_size, 3)
+
+
+def optimized_mosaic(img_array, grid_size, tile_array, base_colors):
+    cropped, avg_colors = cell_averages(img_array, grid_size)
+    best = match_tiles(avg_colors, base_colors)
+    return assemble(best, tile_array), cropped, avg_colors
 
 # ==========================================
 # 3. PIPELINE & GRADIO INTERFACE
 # ==========================================
 def process_image(input_img, grid_size, num_tiles):
     img_array = np.array(input_img, dtype=np.uint8)
-    
-    # Prepare tile set
-    tile_size = 20
-    np.random.seed(42)
-    base_colors = np.random.randint(0, 255, size=(int(num_tiles), 3), dtype=np.uint8)
-    tile_array = np.zeros((int(num_tiles), tile_size, tile_size, 3), dtype=np.uint8)
-    for i in range(int(num_tiles)):
-        tile_array[i, :, :] = base_colors[i]
-        tile_array[i, 0, :] = 20
-        tile_array[i, :, 0] = 20
-        
-    # Measure Vectorized Time
-    start_vec = time.time()
-    vectorized_result, cropped_orig, avg_colors = vectorized_mosaic(img_array, grid_size, tile_array, base_colors)
-    time_vec = time.time() - start_vec
-    
-    # Measure Loop Time (Your missing requirement)
-    start_loop = time.time()
-    _ = loop_based_mosaic(img_array, grid_size, tile_array, base_colors)
-    time_loop = time.time() - start_loop
-    
+    grid_size = int(grid_size)
+    tile_array, base_colors = build_tiles(int(num_tiles))
+    tile_size = tile_array.shape[1]
+
+    start = time.perf_counter()
+    mosaic, cropped_orig, avg_colors = optimized_mosaic(img_array, grid_size, tile_array, base_colors)
+    elapsed = time.perf_counter() - start
+
     # Format Outputs
     canvas_size = grid_size * tile_size
     segmented_preview = Image.fromarray(avg_colors, 'RGB').resize((canvas_size, canvas_size), Image.NEAREST)
-    
-    mosaic_img = Image.fromarray(vectorized_result)
+
+    mosaic_img = Image.fromarray(mosaic)
     original_resized = Image.fromarray(cropped_orig).resize((canvas_size, canvas_size))
     final_artistic_mosaic = Image.blend(mosaic_img, original_resized, alpha=0.25)
-    
+
     # Calculate MSE Metric
     orig_resized_arr = np.array(original_resized, dtype=np.float32)
     result_arr = np.array(final_artistic_mosaic, dtype=np.float32)
     mse_value = np.mean((orig_resized_arr - result_arr) ** 2)
-    
-    # Generate the Lab Report with both times
+
     report = (
         f"--- Performance Metric ---\n"
         f"Mean Squared Error (MSE): {mse_value:.2f}\n\n"
-        f"--- Computational Performance (Step 6) ---\n"
+        f"--- Computational Performance ---\n"
         f"Grid Size: {grid_size}x{grid_size}\n"
-        f"Vectorized Processing Time: {time_vec:.5f} seconds\n"
-        f"Loop-Based Processing Time: {time_loop:.5f} seconds\n"
-        f"Speedup Factor: {time_loop / time_vec:.2f}x faster using NumPy"
+        f"Mosaic Processing Time: {elapsed * 1000:.2f} ms"
     )
-    
+
     return segmented_preview, final_artistic_mosaic, report
 
 demo = gr.Interface(
@@ -121,7 +103,7 @@ demo = gr.Interface(
         gr.Textbox(label="Assignment Report & Metrics", lines=9)
     ],
     title="Interactive Image Mosaic Generator",
-    description="Fulfills all requirements including vector vs loop timing, MSE metrics, and UI."
+    description="Optimized mosaic generator with processing time and MSE metrics."
 )
 
 if __name__ == "__main__":
