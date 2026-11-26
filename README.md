@@ -2,7 +2,7 @@
 
 Rebuilds a photo out of small tiles. The image is split into a grid, each cell is matched to the tile with the closest color, and the chosen tiles are assembled into a mosaic. For Lab 8, the Lab 1 version was profiled, made 93× faster at 512×512 with a 32×32 grid, and split into the `mosaic_generator` package.
 
-**Live demo:** TODO_LINK
+**Live demo:** https://imagemosaicgenerator.onrender.com (free hosting: the first visit after a quiet spell can take about 30 seconds while the app wakes up)
 
 ## Installation
 
